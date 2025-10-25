@@ -1,6 +1,5 @@
-use std::path::PathBuf;
-
 use anyhow::Result;
+use std::path::PathBuf;
 
 use rusty_pcm_resolver::{MediaInput, resolve_pcm};
 
