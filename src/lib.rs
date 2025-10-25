@@ -1,5 +1,4 @@
 use anyhow::{Context, Result, anyhow};
-use blake3;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -124,10 +123,10 @@ fn find_cached_by_stem(dir: &Path, stem: &str) -> Result<Option<PathBuf>> {
         let p = entry?.path();
 
         // skip temporary/partial files
-        if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
-            if ext.eq_ignore_ascii_case("part") || ext.eq_ignore_ascii_case("tmp") {
-                continue;
-            }
+        if let Some(ext) = p.extension().and_then(|e| e.to_str())
+            && (ext.eq_ignore_ascii_case("part") || ext.eq_ignore_ascii_case("tmp"))
+        {
+            continue;
         }
 
         if p.file_stem().and_then(|s| s.to_str()) == Some(stem) && p.is_file() {
@@ -158,24 +157,23 @@ pub fn resolve_media_input(media_input: MediaInput) -> Result<MediaInput> {
             let parsed = Url::parse(&url).with_context(|| format!("invalid url: {url}"))?;
 
             // file:// scheme
-            if parsed.scheme() == "file" {
-                if let Ok(path) = parsed.to_file_path() {
-                    if !path.exists() {
-                        return Err(anyhow!("file does not exist: {}", path.display()));
-                    }
-                    return Ok(MediaInput::File(path));
+            if parsed.scheme() == "file"
+                && let Ok(path) = parsed.to_file_path()
+            {
+                if !path.exists() {
+                    return Err(anyhow!("file does not exist: {}", path.display()));
                 }
+                return Ok(MediaInput::File(path));
             }
 
             // try resolvers
             for r in resolvers() {
-                if r.matches(&parsed) {
-                    if let Some(mi) = r
+                if r.matches(&parsed)
+                    && let Some(mi) = r
                         .resolve(&url)
                         .with_context(|| format!("resolver {} failed", r.name()))?
-                    {
-                        return Ok(mi);
-                    }
+                {
+                    return Ok(mi);
                 }
             }
 
@@ -200,7 +198,7 @@ pub fn download_pcm_from_source(
     if !(1..=8).contains(&ch) {
         return Err(anyhow!("channels must be in 1..=8, got {}", ch));
     }
-    if sr < 8_000 || sr > 192_000 {
+    if !(8_000..=192_000).contains(&sr) {
         return Err(anyhow!(
             "sample_rate_hz must be in [8000, 192000], got {}",
             sr
@@ -261,7 +259,7 @@ pub fn download_pcm_from_source(
                 vec!["-headers".into(), "User-Agent: Mozilla/5.0".into()],
             );
             let derived_referer = derive_referer(u);
-            if let Some(r) = referer.or_else(|| derived_referer.as_deref()) {
+            if let Some(r) = referer.or(derived_referer.as_deref()) {
                 args.splice(0..0, vec!["-headers".into(), format!("Referer: {}", r)]);
             }
             args.push(u.clone());
