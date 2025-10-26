@@ -5,6 +5,11 @@ It supports multiple input types (URLs, local files, or resolvable media sources
 
 By automating source detection, conversion, and caching, this library simplifies audio processing pipelines, making it ideal for projects involving transcription, speech recognition, or signal analysis.
 
+## Prerequisites
+
+* `ffmpeg` installed and accessible from the command line
+* (Optional) `yt-dlp` for resolving external media URLs
+
 ---
 
 ## Usage Guide
@@ -12,36 +17,51 @@ By automating source detection, conversion, and caching, this library simplifies
 To include this crate in your project, add it to your dependencies:
 
 ```bash
-cargo add --git https://github.com/sindre0830/rusty-pcm-resolver.git --tag v0.1.0 rusty-pcm-resolver
+cargo add --git https://github.com/sindre0830/rusty-pcm-resolver.git --tag v1.0.0 rusty-pcm-resolver
 ```
 
 Or manually in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rusty-pcm-resolver = { git = "https://github.com/sindre0830/rusty-pcm-resolver.git", tag = "v0.1.0" }
+rusty-pcm-resolver = { git = "https://github.com/sindre0830/rusty-pcm-resolver.git", tag = "v1.0.0" }
 ```
-
-Make sure `ffmpeg` is installed and accessible in your system’s PATH.
 
 ### Example
 
 ```rust
-// example 1: resolve and decode a remote media URL
-let remote_url = "https://url.to/audio";
-let remote_media = MediaInput::Url(remote_url.to_string());
+use anyhow::Result;
 
-let remote_samples = resolve_pcm(remote_media, None, None, None)?;
-println!("Loaded {} samples from remote URL", remote_samples.len());
-```
+use rusty_pcm_resolver::domain::MediaInput;
+use rusty_pcm_resolver::{Options, PcmResolver};
 
-```rust
-// example 2: resolve and decode from a local file path
-let local_path = PathBuf::from("path/to/local/file.something");
-let local_media = MediaInput::File(local_path);
+fn main() -> Result<()> {
+    // example 1: resolve, decode, and load pcm into memory from a remote media URL
+    let options_1 = Options::new(MediaInput::Url("https://url.to/audio".into()));
+    let remote_samples = PcmResolver::new(options_1)
+        .resolve_media()?
+        .convert_to_pcm()?
+        .load()?;
+    println!("Loaded {} samples from remote URL", remote_samples.len());
 
-let local_samples = resolve_pcm(local_media, None, None, None)?;
-println!("Loaded {} samples from local file", local_samples.len());
+    // example 2: resolve, decode, and load pcm into memory from a local file path
+    let options_2 = Options::new(MediaInput::File("path/to/local/file.something".into()));
+    let local_samples = PcmResolver::new(options_2)
+        .resolve_media()?
+        .convert_to_pcm()?
+        .load()?;
+    println!("Loaded {} samples from local file", local_samples.len());
+
+    // example 3: resolve and decode a remote media URL (returns cached PCM path)
+    let options_3 = Options::new(MediaInput::Url("https://url.to/audio".into()));
+    let remote_pcm_path = PcmResolver::new(options_3)
+        .resolve_media()?
+        .convert_to_pcm()?
+        .into_path()?;
+    println!("PCM cached at {}", remote_pcm_path.display());
+
+    Ok(())
+}
 ```
 
 ---
@@ -50,16 +70,33 @@ println!("Loaded {} samples from local file", local_samples.len());
 
 ### Core Functions
 
-| Function                                                             | Input                                                      | Output               | Description                                                                                                        |
-| -------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `resolve_pcm(media_input, referer, sample_rate_hz, channels)`        | `MediaInput`, `Option<&str>`, `Option<u32>`, `Option<u8>`  | `Result<Vec<f32>>`   | Resolves a media source (URL or file) and returns decoded PCM samples (`f32le`). Automatically caches conversions. |
-| `resolve_media_input(media_input)`                                   | `MediaInput`                                               | `Result<MediaInput>` | Validates or resolves a media input through internal resolvers (e.g., `yt-dlp`).                                   |
-| `download_pcm_from_source(media, referer, sample_rate_hz, channels)` | `&MediaInput`, `Option<&str>`, `Option<u32>`, `Option<u8>` | `Result<PathBuf>`    | Downloads or converts media to PCM and stores the cached file on disk.                                             |
-| `load_pcm_from_path(path)`                                           | `&Path`                                                    | `Result<Vec<f32>>`   | Loads an existing PCM file from disk into memory.                                                                  |
+| Method                      | Input     | Output             | Description                                                                                                |
+| --------------------------- | --------- | ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `PcmResolver::new(options)` | `Options` | `PcmResolver`      | Creates a new resolver pipeline configured with `Options`.                                                 |
+| `resolve_media()`           | —         | `Self`             | Resolves the `MediaInput` inside `Options` (e.g., validates local file or runs `yt-dlp`). |
+| `convert_to_pcm()`          | —         | `Self`             | Converts the resolved media into PCM (`f32le`) using `ffmpeg`. Caches the result.        |
+| `load()`                    | —         | `Result<Vec<f32>>` | Loads decoded PCM samples from the cached file into memory.                                                |
+| `into_path()`               | —         | `Result<PathBuf>`  | Returns the cached PCM file path without loading samples.                                                  |
 
-`resolve_pcm` serves as the main entry point, internally calling the other three functions to resolve, download, and load the PCM data.
+Each pipeline step consumes the previous state to enforce the correct order (resolve → convert → load).
+If the PCM already exists in the cache, convert_to_pcm() will skip reprocessing automatically.
 
 ---
+
+### Configuration
+
+| Type                  | Description                                                                                                                                                            |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`Options`**         | Configuration object describing what to process and how. Holds `MediaInput`, `sample_rate_hz`, `channels`, optional `referer`, and `cache_dir`.                                     |
+| **`Options::hash()`** | Returns a deterministic hash ID for the combination of `MediaInput`, `sample_rate_hz`, `channels`, and `referer`. Useful for naming related files (e.g., transcripts). |
+
+```rust
+let opts = Options::new(MediaInput::Url("https://url.to/audio".into()))
+    .sample_rate(16_000)
+    .channels(1);
+
+println!("Cache ID: {}", opts.hash());
+```
 
 ### Types
 
@@ -67,8 +104,6 @@ println!("Loaded {} samples from local file", local_samples.len());
 | --------------------------- | ------------------------------------------------- |
 | `MediaInput::Url(String)`   | Remote media URL (e.g., `.mp4`, `.m3u8`, `.wav`). |
 | `MediaInput::File(PathBuf)` | Local file path to an audio or video file.        |
-
-All conversions are cached under `./.cache/pcm` for faster repeated access.
 
 ---
 
@@ -81,11 +116,6 @@ Users are solely responsible for ensuring that their usage complies with all app
 ---
 
 ## Development Guide
-
-### Prerequisites
-
-* `ffmpeg` installed and accessible from the command line
-* (Optional) `yt-dlp` for resolving external media URLs
 
 ### Commands
 
