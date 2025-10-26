@@ -12,14 +12,14 @@ By automating source detection, conversion, and caching, this library simplifies
 To include this crate in your project, add it to your dependencies:
 
 ```bash
-cargo add --git https://github.com/sindre0830/rusty-pcm-resolver.git --tag v0.1.0 rusty_pcm_resolver
+cargo add --git https://github.com/sindre0830/rusty-pcm-resolver.git --tag v0.1.0 rusty-pcm-resolver
 ```
 
 Or manually in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rusty_pcm_resolver = { git = "https://github.com/sindre0830/rusty-pcm-resolver.git", tag = "v0.1.0" }
+rusty-pcm-resolver = { git = "https://github.com/sindre0830/rusty-pcm-resolver.git", tag = "v0.1.0" }
 ```
 
 Make sure `ffmpeg` is installed and accessible in your system’s PATH.
@@ -84,7 +84,6 @@ Users are solely responsible for ensuring that their usage complies with all app
 
 ### Prerequisites
 
-* Rust 1.81+
 * `ffmpeg` installed and accessible from the command line
 * (Optional) `yt-dlp` for resolving external media URLs
 
