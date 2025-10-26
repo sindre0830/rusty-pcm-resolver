@@ -10,7 +10,7 @@ pub fn register(resolver: Arc<dyn MediaResolver>) {
     REGISTRY.write().unwrap().push(resolver);
 }
 
-/// iterate current resolvers (builtins + user-registered)
+/// return registered resolvers
 pub fn resolvers() -> Vec<Arc<dyn MediaResolver>> {
     REGISTRY.read().unwrap().clone()
 }
