@@ -2,7 +2,16 @@ use anyhow::{Context, Result, anyhow};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Once;
 use url::Url;
+
+pub mod resolver;
+
+static INIT: Once = Once::new();
+
+pub fn ensure_init() {
+    INIT.call_once(resolver::builtin::register_builtins);
+}
 
 /// Resolves a media input and converts it to PCM audio samples.
 ///
@@ -34,116 +43,10 @@ pub enum MediaInput {
     File(PathBuf),
 }
 
-trait MediaResolver {
-    /// return a short name for logging/debugging
-    fn name(&self) -> &'static str;
-
-    /// tell if this resolver applies to the given url
-    fn matches(&self, url: &Url) -> bool;
-
-    /// return Some(media input) if resolved, None to defer to next resolver
-    fn resolve(&self, original: &str) -> Result<Option<MediaInput>>;
-}
-
-struct YouTubeResolver;
-
-impl MediaResolver for YouTubeResolver {
-    fn name(&self) -> &'static str {
-        "youtube"
-    }
-
-    fn matches(&self, url: &Url) -> bool {
-        matches!(url.domain(), Some(d) if d.contains("youtube.com") || d.contains("youtu.be"))
-    }
-
-    fn resolve(&self, original: &str) -> Result<Option<MediaInput>> {
-        let cache_dir = Path::new("./.cache/ytdlp");
-        fs::create_dir_all(cache_dir).context("failed to create ytdlp cache dir")?;
-
-        // stable file stem by hashing original url
-        let stem = blake3::hash(original.as_bytes()).to_hex().to_string();
-
-        // 1) check cache *before* invoking yt-dlp (avoid re-download)
-        if let Some(p) = find_cached_by_stem(cache_dir, &stem)? {
-            return Ok(Some(MediaInput::File(p)));
-        }
-
-        // unknown extension ahead; set template with the stem
-        let template = cache_dir.join(format!("{stem}.%(ext)s"));
-        let template_str = template.to_string_lossy().into_owned();
-
-        // assemble yt-dlp args
-        let mut args = vec![
-            "--quiet".into(),
-            "--no-warnings".into(),
-            "--no-playlist".into(),
-            "--no-overwrites".into(),
-            "--no-part".into(),
-            "-f".into(),
-            "bestaudio".into(),
-            "-o".into(),
-            template_str,
-            original.into(),
-        ];
-
-        // optional: parallel downloader via aria2c (opt-in with env var)
-        if std::env::var("YTDLP_USE_ARIA2C").ok().as_deref() == Some("1") {
-            args.splice(
-                1..1,
-                [
-                    "--downloader".into(),
-                    "aria2c".into(),
-                    "--downloader-args".into(),
-                    "aria2c:-x16 -s16 -k1M --summary-interval=0".into(),
-                ],
-            );
-        }
-
-        let status = Command::new("yt-dlp")
-            .args(&args)
-            .status()
-            .context("failed to run yt-dlp")?;
-
-        if !status.success() {
-            return Err(anyhow!("yt-dlp download failed with status {}", status));
-        }
-
-        // 2) locate downloaded file (stem + unknown extension)
-        let downloaded = find_cached_by_stem(cache_dir, &stem)?
-            .ok_or_else(|| anyhow!("yt-dlp reported success but output file not found"))?;
-
-        Ok(Some(MediaInput::File(downloaded)))
-    }
-}
-
-fn find_cached_by_stem(dir: &Path, stem: &str) -> Result<Option<PathBuf>> {
-    // look for any file whose file_stem equals our stem, ignoring temp/part files
-    let mut candidate: Option<PathBuf> = None;
-    for entry in fs::read_dir(dir).with_context(|| format!("listing {}", dir.display()))? {
-        let p = entry?.path();
-
-        // skip temporary/partial files
-        if let Some(ext) = p.extension().and_then(|e| e.to_str())
-            && (ext.eq_ignore_ascii_case("part") || ext.eq_ignore_ascii_case("tmp"))
-        {
-            continue;
-        }
-
-        if p.file_stem().and_then(|s| s.to_str()) == Some(stem) && p.is_file() {
-            candidate = Some(p);
-            break;
-        }
-    }
-    Ok(candidate)
-}
-
-fn resolvers() -> [&'static dyn MediaResolver; 1] {
-    static YT: YouTubeResolver = YouTubeResolver;
-    [&YT]
-}
-
 /// resolve MediaInput: validate file exists if it's a file, or process URL through resolvers
 pub fn resolve_media_input(media_input: MediaInput) -> Result<MediaInput> {
+    ensure_init();
+
     match media_input {
         MediaInput::File(path) => {
             // validate that the file exists
@@ -167,7 +70,7 @@ pub fn resolve_media_input(media_input: MediaInput) -> Result<MediaInput> {
             }
 
             // try resolvers
-            for r in resolvers() {
+            for r in resolver::resolvers() {
                 if r.matches(&parsed)
                     && let Some(mi) = r
                         .resolve(&url)
