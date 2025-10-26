@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::path::Path;
 use url::Url;
 
 use crate::domain::MediaInput;
@@ -12,5 +13,5 @@ pub trait MediaResolver: Send + Sync {
     fn matches(&self, url: &Url) -> bool;
 
     /// resolve into a concrete media input (file/url) or return None to defer
-    fn resolve(&self, original: &str) -> Result<Option<MediaInput>>;
+    fn resolve(&self, original: &str, cache_dir: &Path) -> Result<Option<MediaInput>>;
 }

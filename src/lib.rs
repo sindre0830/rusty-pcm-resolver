@@ -17,38 +17,58 @@ pub fn ensure_init() {
 /// user-configurable options for conversion
 #[derive(Clone, Debug)]
 pub struct Options {
-    pub referer: Option<String>,
+    pub media_input: domain::MediaInput,
     pub sample_rate_hz: u32,
     pub channels: u8,
-}
-
-impl Default for Options {
-    fn default() -> Self {
-        Self {
-            referer: None,
-            sample_rate_hz: 16_000,
-            channels: 1,
-        }
-    }
+    pub referer: Option<String>,
+    pub cache_dir: PathBuf,
 }
 
 impl Options {
-    /// set target sample rate
+    /// create new options with the required media input
+    pub fn new(media_input: domain::MediaInput) -> Self {
+        Self {
+            media_input,
+            sample_rate_hz: 16_000,
+            channels: 1,
+            referer: None,
+            cache_dir: PathBuf::from(".cache").join("rusty_pcm_resolver"),
+        }
+    }
+
     pub fn sample_rate(mut self, hz: u32) -> Self {
         self.sample_rate_hz = hz;
         self
     }
 
-    /// set number of audio channels
     pub fn channels(mut self, ch: u8) -> Self {
         self.channels = ch;
         self
     }
 
-    /// set explicit referer header
     pub fn referer(mut self, r: Option<impl Into<String>>) -> Self {
         self.referer = r.map(Into::into);
         self
+    }
+
+    /// compute a stable hash that identifies this exact conversion configuration
+    pub fn hash(&self) -> String {
+        let mut hasher = blake3::Hasher::new();
+
+        // media identifier
+        match &self.media_input {
+            domain::MediaInput::Url(u) => hasher.update(u.as_bytes()),
+            domain::MediaInput::File(p) => hasher.update(p.to_string_lossy().as_bytes()),
+        };
+
+        hasher.update(&self.sample_rate_hz.to_le_bytes());
+        hasher.update(&[self.channels]);
+
+        if let Some(r) = &self.referer {
+            hasher.update(r.as_bytes());
+        }
+
+        hasher.finalize().to_hex().to_string()
     }
 }
 
@@ -75,21 +95,21 @@ impl PcmResolver {
     }
 
     /// resolve the input (local file, file://, youtube, etc.) into a concrete media source
-    pub fn resolve_media(mut self, input: domain::MediaInput) -> Result<Self> {
+    pub fn resolve_media(mut self) -> Result<Self> {
         // initialize builtin resolvers on first use
         ensure_init();
 
-        let resolved = match input {
-            domain::MediaInput::File(path) => {
+        let resolved = match self.opts.media_input {
+            domain::MediaInput::File(ref path) => {
                 // validate that the file exists
                 if !path.exists() {
                     return Err(anyhow!("file does not exist: {}", path.display()));
                 }
-                domain::MediaInput::File(path)
+                domain::MediaInput::File(path.to_path_buf())
             }
-            domain::MediaInput::Url(url) => {
+            domain::MediaInput::Url(ref url) => {
                 // parse as url
-                let parsed = Url::parse(&url).with_context(|| format!("invalid url: {url}"))?;
+                let parsed = Url::parse(url).with_context(|| format!("invalid url: {url}"))?;
 
                 // handle local files
                 if parsed.scheme() == "file" {
@@ -105,7 +125,7 @@ impl PcmResolver {
                     for r in resolver::resolvers() {
                         if r.matches(&parsed)
                             && let Some(mi) = r
-                                .resolve(&url)
+                                .resolve(url, &self.opts.cache_dir)
                                 .with_context(|| format!("resolver {} failed", r.name()))?
                         {
                             // short-circuit on first successful resolver
@@ -114,7 +134,7 @@ impl PcmResolver {
                         }
                     }
                     // fallback: treat as direct remote media url
-                    domain::MediaInput::Url(url)
+                    domain::MediaInput::Url(url.to_string())
                 }
             }
         };
@@ -146,24 +166,11 @@ impl PcmResolver {
         }
 
         // ensure cache dir
-        let cache_dir = Path::new("./.cache/pcm");
+        let cache_dir = &self.opts.cache_dir.join("pcm");
         fs::create_dir_all(cache_dir).context("failed to create cache directory")?;
 
-        // build stable hash from inputs
-        let mut hasher = blake3::Hasher::new();
-        match media {
-            domain::MediaInput::Url(u) => hasher.update(u.as_bytes()),
-            domain::MediaInput::File(p) => hasher.update(p.to_string_lossy().as_bytes()),
-        };
-        if let Some(r) = &self.opts.referer {
-            hasher.update(r.as_bytes());
-        }
-        hasher.update(&sr.to_le_bytes());
-        hasher.update(&[ch]);
-        let hash = hasher.finalize().to_hex().to_string();
-
         // derive final and temp paths
-        let filename = format!("{hash}.pcm");
+        let filename = format!("{}.pcm", self.opts.hash());
         let output_path = cache_dir.join(filename);
         if output_path.exists() {
             self.state = State::Converted(output_path);

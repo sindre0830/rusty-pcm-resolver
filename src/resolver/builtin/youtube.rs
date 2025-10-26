@@ -18,8 +18,8 @@ impl MediaResolver for YouTubeResolver {
         matches!(url.domain(), Some(d) if d.contains("youtube.com") || d.contains("youtu.be"))
     }
 
-    fn resolve(&self, original: &str) -> Result<Option<MediaInput>> {
-        let cache_dir = Path::new("./.cache/ytdlp");
+    fn resolve(&self, original: &str, cache_dir: &Path) -> Result<Option<MediaInput>> {
+        let cache_dir = &cache_dir.join("ytdlp");
         fs::create_dir_all(cache_dir).context("failed to create ytdlp cache dir")?;
         let stem = blake3::hash(original.as_bytes()).to_hex().to_string();
 
@@ -55,7 +55,6 @@ impl MediaResolver for YouTubeResolver {
     }
 }
 
-// small helper kept local to this module
 fn find_cached_by_stem(dir: &Path, stem: &str) -> Result<Option<PathBuf>> {
     for entry in fs::read_dir(dir).with_context(|| format!("listing {}", dir.display()))? {
         let p = entry?.path();

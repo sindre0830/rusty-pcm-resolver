@@ -1,6 +1,6 @@
 pub mod builtin;
 pub mod registry;
-pub mod r#traits;
+pub mod traits;
 
 pub use registry::{register, resolvers};
-pub use r#traits::MediaResolver;
+pub use traits::MediaResolver;
