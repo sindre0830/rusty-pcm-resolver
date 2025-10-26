@@ -1,7 +1,7 @@
 use anyhow::Result;
 use url::Url;
 
-use crate::MediaInput;
+use crate::domain::MediaInput;
 
 /// user-extensible resolver interface
 pub trait MediaResolver: Send + Sync {

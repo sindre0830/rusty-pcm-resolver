@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use url::Url;
 
-use super::super::traits::MediaResolver;
-use crate::MediaInput;
+use crate::domain::MediaInput;
+use crate::resolver::traits::MediaResolver;
 
 pub struct YouTubeResolver;
 

@@ -1,22 +1,35 @@
 use anyhow::Result;
-use std::path::PathBuf;
 
-use rusty_pcm_resolver::{MediaInput, resolve_pcm};
+use rusty_pcm_resolver::PcmResolver;
 
 fn main() -> Result<()> {
-    // example 1: resolve and decode a remote media URL
-    let remote_url = "https://url.to/audio";
-    let remote_media = MediaInput::Url(remote_url.to_string());
-
-    let remote_samples = resolve_pcm(remote_media, None, None, None)?;
+    // example 1: resolve, decode, and load into pcm into memory from a remote media URL
+    let remote_samples = PcmResolver::new(rusty_pcm_resolver::Options::default())
+        .resolve_media(rusty_pcm_resolver::domain::MediaInput::Url(
+            "https://www.youtube.com/watch?v=rqN3S6ZOBRU".into(),
+        ))?
+        .convert_to_pcm()?
+        .load()?;
     println!("Loaded {} samples from remote URL", remote_samples.len());
 
-    // example 2: resolve and decode from a local file path
-    let local_path = PathBuf::from("path/to/local/file.something");
-    let local_media = MediaInput::File(local_path);
-
-    let local_samples = resolve_pcm(local_media, None, None, None)?;
+    // example 2: resolve, decode, and load into pcm into memory from a local file path
+    let local_samples = PcmResolver::new(rusty_pcm_resolver::Options::default())
+        .resolve_media(rusty_pcm_resolver::domain::MediaInput::File(
+            ".cache/ytdlp/8c48d911867c5fe8bd20e4665758ef446282c2c0de4efabb703b92bf61f04a9e.webm"
+                .into(),
+        ))?
+        .convert_to_pcm()?
+        .load()?;
     println!("Loaded {} samples from local file", local_samples.len());
+
+    // example 3: resolve and decode a remote media URL (just return PCM path)
+    let remote_pcm_path = PcmResolver::new(rusty_pcm_resolver::Options::default())
+        .resolve_media(rusty_pcm_resolver::domain::MediaInput::Url(
+            "https://www.youtube.com/watch?v=rqN3S6ZOBRU".into(),
+        ))?
+        .convert_to_pcm()?
+        .into_path()?;
+    println!("PCM cached at {}", remote_pcm_path.display());
 
     Ok(())
 }

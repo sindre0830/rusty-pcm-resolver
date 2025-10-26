@@ -1,7 +1,7 @@
 use once_cell::sync::Lazy;
 use std::sync::{Arc, RwLock};
 
-use super::traits::MediaResolver;
+use crate::resolver::traits::MediaResolver;
 
 static REGISTRY: Lazy<RwLock<Vec<Arc<dyn MediaResolver>>>> = Lazy::new(|| RwLock::new(Vec::new()));
 
